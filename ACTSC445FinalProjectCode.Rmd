@@ -1,0 +1,156 @@
+---
+title: ""
+output: pdf_document
+---
+## 6. Appendix
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, warning = FALSE, message = FALSE}
+## Load Required Libraries
+library(copula)
+library(dplyr)
+```
+
+```{r load-data}
+## Load Dataset
+data <- read.csv("HomeCreditDefaultRisk.csv")
+```
+
+```{r dataset-analysis}
+## Plotting Histograms of Select Data
+hist(
+  data$AMT_CREDIT,
+  breaks = 20,
+  main = "Figure 1: Histogram of AMT_CREDIT",
+  xlab = "Credit Amount",
+  ylab = "Frequency"
+)
+
+barplot(
+  table(data$CODE_GENDER),
+  main = "Figure 2: Histogram of Gender",
+  xlab = "Gender",
+  ylab = "Count"
+)
+
+data$NAME_EDUCATION_TYPE[data$NAME_EDUCATION_TYPE == "Secondary / secondary special"] <- "Secondary"
+
+barplot(
+  table(data$NAME_EDUCATION_TYPE),
+  main = "Figure 3: Histogram of Education Type",
+  xlab = "Education Type",
+  ylab = "Count",
+)
+
+## 5 Number Summary of Credit Amount
+credit_amounts <- data$AMT_CREDIT
+summary(credit_amounts)
+```
+
+```{r monte-carlo}
+## Monte Carlo Simulation
+set.seed(445)
+
+n_simulations <- 10000
+default_probabilities <- c(0.01, 0.05, 0.1)
+loss_given_defaults <- c(0.25, 0.5, 0.75)
+results <- list()
+
+figure_counter <- 4
+
+for (default_probability in default_probabilities) {
+  for (lgd in loss_given_defaults) {
+    defaults <- rbinom(n_simulations, size = length(credit_amounts), prob = default_probability)
+    
+    losses <- rowSums(matrix(defaults, nrow = n_simulations, 
+                             ncol = length(credit_amounts)) * credit_amounts * lgd)
+    
+    results <- append(results, list(losses))
+    
+    hist(losses, breaks = 50, 
+         main = paste("Figure", figure_counter, 
+                      ": Simulated Portfolio Losses\nDefault Probability =", default_probability, 
+                      "LGD =", lgd),
+         xlab = "Loss Amount")
+    
+    figure_counter <- figure_counter + 1
+  }
+}
+```
+
+```{r dependency-modeling, warning = FALSE, error = FALSE}
+## Initializing a Subset of Data for Variables of Interest
+data_subset <- data %>%
+  select(AMT_CREDIT, CODE_GENDER, FLAG_OWN_CAR, FLAG_OWN_REALTY, AMT_ANNUITY, 
+         NAME_INCOME_TYPE, NAME_EDUCATION_TYPE, DAYS_EMPLOYED)
+
+## Making Data Usable for cor() Function
+data_subset$CODE_GENDER <- as.factor(data_subset$CODE_GENDER)
+data_subset$FLAG_OWN_CAR <- as.factor(data_subset$FLAG_OWN_CAR)
+data_subset$FLAG_OWN_REALTY <- as.factor(data_subset$FLAG_OWN_REALTY)
+data_subset$NAME_INCOME_TYPE <- as.factor(data_subset$NAME_INCOME_TYPE)
+data_subset$NAME_EDUCATION_TYPE <- as.factor(data_subset$NAME_EDUCATION_TYPE)
+data_subset_numeric <- data_subset %>%
+  mutate(across(where(is.factor), as.integer))
+
+## Calculating Correlation Matrix
+cor_matrix <- cor(data_subset_numeric)
+print(cor_matrix)
+
+## Dependency Modeling
+## Normal Copula Model for All Variables in Data_Subset
+cop_model <- normalCopula(dim = 8)
+u <- pobs(as.matrix(data_subset_numeric))
+
+fit <- fitCopula(cop_model, u[, 1:8])
+summary(fit)
+
+## Normal Copula Model for Just Annuity and Credit
+cop_model <- normalCopula(dim = 2)
+u <- pobs(as.matrix(data_subset_numeric))
+
+fit <- fitCopula(cop_model, u[, c(1, 5)])
+summary(fit)
+
+## Student's t Copula Model for All Variables in Data_Subset
+cop_model <- tCopula(dim = 8) 
+u <- pobs(as.matrix(data_subset_numeric))
+
+fit <- fitCopula(cop_model, u[, 1:8])
+summary(fit)
+
+## Student's t Copula Model for Just Annuity and Credit
+cop_model <- tCopula(dim = 2)
+u <- pobs(as.matrix(data_subset_numeric))
+
+fit <- fitCopula(cop_model, u[, c(1, 5)])
+summary(fit)
+
+## Gumbel Copula Model for All Variables in Data_Subset
+cop_model <- gumbelCopula(dim = 8) 
+u <- pobs(as.matrix(data_subset_numeric))
+
+fit <- fitCopula(cop_model, u[, 1:8])
+summary(fit)
+
+## Gumbel Copula Model for Just Annuity and Credit
+cop_model <- gumbelCopula(dim = 2)
+u <- pobs(as.matrix(data_subset_numeric))
+
+fit <- fitCopula(cop_model, u[, c(1, 5)])
+summary(fit)
+```
+
+```{r var-es}
+## Calculate VaR
+var_95 <- quantile(losses, 0.95)
+
+## Calculate ES
+es_95 <- mean(losses[losses > var_95])
+
+cat("Value at Risk (95%):", var_95, "\n")
+cat("Expected Shortfall (95%):", es_95, "\n")
+```
